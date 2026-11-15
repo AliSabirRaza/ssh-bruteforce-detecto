@@ -1,0 +1,2 @@
+Oct 31 10:01:05 server sshd[1202]: Accepted password for alice from 10.0.0.7 port 51022 ssh2
+Oct 31 10:20:11 server sshd[1210]: Accepted password for bob from 10.0.0.8 port 51030 ssh2

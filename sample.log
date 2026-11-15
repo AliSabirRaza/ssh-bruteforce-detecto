@@ -1,0 +1,6 @@
+Oct 31 10:01:02 server sshd[1201]: Failed password for root from 192.168.1.5 port 22 ssh2
+Oct 31 10:01:05 server sshd[1202]: Accepted password for alice from 10.0.0.7 port 51022 ssh2
+Oct 31 10:01:09 server sshd[1203]: Failed password for admin from 192.168.1.5 port 22 ssh2
+Oct 31 10:04:30 server sshd[1204]: Failed password for root from 192.168.1.5 port 22 ssh2
+Oct 31 10:40:00 server sshd[1205]: Failed password for root from 192.168.1.5 port 22 ssh2
+Oct 31 10:40:03 server sshd[1206]: Failed password for root from 192.168.1.5 port 22 ssh2
