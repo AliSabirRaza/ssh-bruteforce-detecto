@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSH Brute-Force Live Demo</title>
+<style>
+:root{--bg:#f2f5f9;--surface:#fff;--ink:#14202e;--muted:#5b6b7d;--line:#d5dce5;--accent:#1f6f8b;--alert:#b8322b;--alert-bg:#fbe9e7;--ok:#2d7a4f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101820;--surface:#18232f;--ink:#e6edf4;--muted:#93a3b5;--line:#2c3b4a;--accent:#5fb4d0;--alert:#ff8a80;--alert-bg:#3a1f22;--ok:#6fcf97}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:24px 16px 48px}
+h1{margin:0 0 6px;font-size:clamp(24px,5vw,34px)}
+h2{font-size:19px;margin:28px 0 8px}
+p,li{color:var(--muted);max-width:68ch}
+p{margin:0 0 10px}
+ul{padding-left:20px;margin:0}
+li{margin-bottom:6px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-top:12px}
+label{display:flex;flex-direction:column;font-size:13px;color:var(--muted);gap:4px}
+input{width:110px;padding:7px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit;font-weight:600;padding:8px 14px;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+pre{margin:0;height:260px;overflow-y:auto;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:10px;font:12.5px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;color:var(--ink)}
+.status{margin:10px 0 0;font-size:14px;color:var(--muted)}
+.sum{display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px}
+.sum b{display:block;font-size:24px}
+.sum span{font-size:13px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+tr.hit td{background:var(--alert-bg)}
+.hit-tag{color:var(--alert);font-weight:600}
+.ok-tag{color:var(--ok);font-weight:600}
+code{font:13px ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+<h1>SSH brute-force live demo</h1>
+<p>This page plays a log feed one line at a time and runs the same analysis as <code>Python12.py</code>. The feed is built into the page, so nothing is sent anywhere.</p>
+
+<section class="panel">
+<pre id="log" aria-label="Log feed"></pre>
+<div class="controls">
+<label>Failures to flag<input id="thr" type="number" value="5" min="2"></label>
+<label>Window (minutes)<input id="win" type="number" value="10" min="1"></label>
+<button id="start">Start feed</button>
+<button class="ghost" id="skip">Skip to end</button>
+<button class="ghost" id="reset">Reset</button>
+</div>
+<p class="status" id="status">Press Start feed to begin.</p>
+</section>
+
+<h2>Results so far</h2>
+<div class="panel" id="out"></div>
+
+<h2>How to read it</h2>
+<ul>
+<li>Each line is one login event from the server's log. Only failed and successful password lines are counted.</li>
+<li>A burst is the most failures from one IP inside the time window.</li>
+<li>An IP is FLAGGED when its burst reaches the threshold.</li>
+<li>Compromise is YES when a flagged IP logged in successfully after its last failure.</li>
+</ul>
+<p style="margin-top:12px">To compare with the Python version, run <code>py Python11.py</code> then <code>py Python12.py generated.log</code>. The final results should match.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// The same events as generated.log from Python11.py, in time order.
+const LINES = [
+"Oct 31 08:55:00 server sshd[3001]: Failed password for alice from 10.0.0.7 port 50011 ssh2",
+"Oct 31 08:55:20 server sshd[3002]: Accepted password for alice from 10.0.0.7 port 50012 ssh2",
+"Oct 31 09:00:00 server sshd[3003]: Failed password for root from 198.51.100.7 port 40001 ssh2",
+"Oct 31 10:30:00 server sshd[3004]: Failed password for root from 198.51.100.7 port 40002 ssh2",
+"Oct 31 11:00:00 server sshd[3005]: Failed password for root from 203.0.113.50 port 40003 ssh2",
+"Oct 31 11:00:08 server sshd[3006]: Failed password for admin from 203.0.113.50 port 40004 ssh2",
+"Oct 31 11:00:15 server sshd[3007]: Failed password for test from 203.0.113.50 port 40005 ssh2",
+"Oct 31 11:00:40 server sshd[3008]: Failed password for root from 203.0.113.50 port 40006 ssh2",
+"Oct 31 11:01:10 server sshd[3009]: Failed password for ubuntu from 203.0.113.50 port 40007 ssh2",
+"Oct 31 11:01:30 server sshd[3010]: Failed password for root from 203.0.113.50 port 40008 ssh2",
+"Oct 31 11:02:05 server sshd[3011]: Failed password for admin from 203.0.113.50 port 40009 ssh2",
+"Oct 31 11:02:20 server sshd[3012]: Failed password for root from 203.0.113.50 port 40010 ssh2",
+"Oct 31 11:05:00 server systemd[1]: Started Session 4 of user alice.",
+"Oct 31 11:06:00 server sshd[3100]: Disconnected from user alice 10.0.0.7 port 51022",
+"Oct 31 11:10:00 server sshd[3013]: Failed password for root from 203.0.113.99 port 40011 ssh2",
+"Oct 31 11:11:00 server sshd[3014]: Failed password for root from 203.0.113.99 port 40012 ssh2",
+"Oct 31 11:11:30 server sshd[3015]: Failed password for admin from 203.0.113.99 port 40013 ssh2",
+"Oct 31 11:12:00 server sshd[3016]: Failed password for root from 203.0.113.99 port 40014 ssh2",
+"Oct 31 11:12:20 server sshd[3017]: Failed password for test from 203.0.113.99 port 40015 ssh2",
+"Oct 31 11:13:00 server sshd[3018]: Failed password for root from 203.0.113.99 port 40016 ssh2",
+"Oct 31 11:25:00 server sshd[3019]: Accepted password for root from 203.0.113.99 port 40017 ssh2",
+"Oct 31 12:00:00 server sshd[3020]: Failed password for root from 198.51.100.7 port 40018 ssh2",
+"Oct 31 13:30:00 server sshd[3021]: Failed password for root from 198.51.100.7 port 40019 ssh2"
+];
+
+const MON = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+const PATTERN = /(Failed|Accepted) password for (?:invalid user )?(\w+) from (\d+\.\d+\.\d+\.\d+)/;
+
+let shown = 0;
+let timer = null;
+
+// Turn one log line into an event, or null if it is not a login line (same as Python12.py).
+function parseLine(line) {
+  const m = line.match(PATTERN);
+  if (!m) return null;
+  const t = line.match(/^(\w{3}) (\d+) (\d\d):(\d\d):(\d\d)/);
+  const time = Date.UTC(2026, MON[t[1]], +t[2], +t[3], +t[4], +t[5]);
+  return { time, ok: m[1] === "Accepted", user: m[2], ip: m[3] };
+}
+
+// Same rules as analyze() in Python12.py, run on the lines shown so far.
+function analyze(thr, winMs) {
+  const events = LINES.slice(0, shown).map(parseLine).filter(Boolean);
+  const byIp = {};
+  for (const e of events) {
+    const g = byIp[e.ip] ??= { fails: [], oks: [] };
+    (e.ok ? g.oks : g.fails).push(e);
+  }
+  return Object.entries(byIp)
+    .filter(([, g]) => g.fails.length > 0)
+    .map(([ip, g]) => {
+      const times = g.fails.map(e => e.time).sort((a, b) => a - b);
+      let burst = 0, start = 0;
+      for (let end = 0; end < times.length; end++) {
+        while (times[end] - times[start] > winMs) start++;
+        burst = Math.max(burst, end - start + 1);
+      }
+      const last = times[times.length - 1];
+      const flagged = burst >= thr;
+      const compromise = flagged && g.oks.some(e => e.time > last);
+      return { ip, total: times.length, burst, flagged, compromise };
+    })
+    .sort((a, b) => b.burst - a.burst);
+}
+
+function render() {
+  const thr = Math.max(2, +$("thr").value || 5);
+  const win = Math.max(1, +$("win").value || 10) * 60000;
+  const rows = analyze(thr, win);
+  const flagged = rows.filter(r => r.flagged).length;
+  const compromises = rows.filter(r => r.compromise).length;
+
+  let html = `<div class="sum">
+    <div><b>${shown}</b><span>log lines read (of ${LINES.length})</span></div>
+    <div><b>${rows.length}</b><span>source IPs</span></div>
+    <div><b style="color:var(--alert)">${flagged}</b><span>flagged</span></div>
+    <div><b style="color:var(--alert)">${compromises}</b><span>possible compromises</span></div>
+  </div>`;
+
+  if (rows.length === 0) {
+    html += `<p>No failed logins yet.</p>`;
+  } else {
+    html += `<table><thead><tr><th>Source IP</th><th>Status</th><th>Burst</th><th>Total failures</th><th>Compromise</th></tr></thead><tbody>`;
+    for (const r of rows) {
+      html += `<tr class="${r.flagged ? "hit" : ""}">
+        <td><code>${r.ip}</code></td>
+        <td class="${r.flagged ? "hit-tag" : "ok-tag"}">${r.flagged ? "FLAGGED" : "OK"}</td>
+        <td>${r.burst}</td><td>${r.total}</td>
+        <td>${r.compromise ? "YES" : "NO"}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  $("out").innerHTML = html;
+}
+
+function addLine() {
+  $("log").textContent += LINES[shown] + "\n";
+  shown++;
+}
+
+function pause(message) {
+  clearInterval(timer);
+  timer = null;
+  $("status").textContent = message || "Paused. Press Start feed to continue.";
+}
+
+function tick() {
+  if (shown < LINES.length) addLine();
+  render();
+  $("log").scrollTop = $("log").scrollHeight;
+  if (shown >= LINES.length) pause("Feed finished. Change the settings to see different results.");
+}
+
+$("start").onclick = () => {
+  if (timer || shown >= LINES.length) return;
+  $("status").textContent = "Feed running...";
+  timer = setInterval(tick, 800);
+};
+
+$("skip").onclick = () => {
+  pause("Feed finished. Change the settings to see different results.");
+  while (shown < LINES.length) addLine();
+  render();
+  $("log").scrollTop = $("log").scrollHeight;
+};
+
+$("reset").onclick = () => {
+  pause("Reset. Press Start feed to begin.");
+  shown = 0;
+  $("log").textContent = "";
+  render();
+};
+
+$("thr").oninput = render;
+$("win").oninput = render;
+render();
+</script>
+</body>
+</html>
